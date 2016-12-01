@@ -414,6 +414,87 @@ MemoryManager::~MemoryManager()
       delete m_dram_directory_cntlr;
 }
 
+//Begin- pic-apps
+void MemoryManager::processAppMagic(UInt64 argument) {
+	MagicServer::MagicMarkerType *args_in = 
+		(MagicServer::MagicMarkerType *) argument;
+	if(getCore()->getId() == 0) {
+		if(args_in->str != NULL) {
+			std::string marker (args_in->str);
+  		if (marker.compare("strm") == 0) {
+				//printf("\nSee a marker: %lu, %s", args_in->arg0, args_in->str);
+				if(!m_app_search_ins_stash.size())
+					create_app_search_instructions_stash(1024, 16, 4, true);
+				init_strmatch(args_in->arg0);
+			}
+  		if (marker.compare("igrb") == 0) {
+				unsigned int * array = (unsigned int*) (args_in->arg0);
+				if(!m_app_search_ins_stash.size())
+					create_app_search_instructions_stash(m_wc_cam_size, 16, 1, false);
+				//printf("\nIN(%u,%u)", array[0], array[1]);
+				init_wordcount(array[0], array[1]);
+			}
+    
+      //CAP: initial cache program
+      if (marker.compare("cprg") == 0) {
+        char * cap_pgm_file = (char*) (agrs_in-> arg0);
+        if(!m_cache_program_dyn_ins_info_stash.size())
+          create_cache_program_instructions_stash(cap_pgm_file);
+        init_cacheprogam(); 
+      } 
+		}
+	}
+}
+
+//CAP: Storing the STE-mapped FSMs into the cache 
+void  MemoryManager::init_cacheprogram() {
+  create_cache_program_instructions();
+  schedule_cache_program_instructions();
+}  
+
+//CAP: Instruction Stash of stores for cache programming 
+void  MemoryManager::create_cache_program_instructions_stash(
+  char* cap_file) {
+  int line_size = getCacheBlockSize();
+	int cur_subarray = 0;
+  int cur_cache_line = 0;
+  while(cur_subarray < NUM_SUBARRAYS) {
+    cur_cache_line = 0;
+		while(cur_cache_line < CACHE_LINES_PER_SUBARRAY) {
+      int reg = *(cap_file + 
+	    OperandList store_list;
+			store_list.push_back(Operand(Operand::MEMORY, 0, Operand::WRITE));
+  		store_list.push_back(Operand(Operand::REG, reg, Operand::READ, 
+																													"", true));
+  		Instruction *store_inst = new GenericInstruction(store_list);
+  		store_inst->setAddress(m_app_search_inst_addr);
+  		store_inst->setSize(4); //Possible sizes seen (L:1-9, S:1-8)
+  		store_inst->setAtomic(false);
+  		store_inst->setDisassembly("");
+  		std::vector<const MicroOp *> *store_uops 
+															= new std::vector<const MicroOp*>();
+  		MicroOp *currentSMicroOp = new MicroOp();
+  		currentSMicroOp->makeStore(
+  			0
+        , 0
+  		  , XED_ICLASS_MOVQ //TODO: xed_decoded_inst_get_iclass(ins)
+  		  , "" //xed_iclass_enum_t2str(xed_decoded_inst_get_iclass(ins))
+  		  , 64
+  		 );
+			currentSMicroOp->addSourceRegister((xed_reg_enum_t)reg, ""); 
+  		currentSMicroOp->setOperandSize(64); 
+  		currentSMicroOp->setInstruction(store_inst);
+  		currentSMicroOp->setFirst(true);
+  		currentSMicroOp->setLast(true);
+  		store_uops->push_back(currentSMicroOp);
+  		store_inst->setMicroOps(store_uops);
+			m_cache_program_ins_stash.push_back(store_inst);
+    }
+  }  
+			
+}  
+
+
 HitWhere::where_t
 MemoryManager::coreInitiateMemoryAccess(
       MemComponent::component_t mem_component,
@@ -534,6 +615,8 @@ MYLOG("begin");
    delete shmem_msg;
 MYLOG("end");
 }
+
+
 
 void
 MemoryManager::sendMsg(PrL1PrL2DramDirectoryMSI::ShmemMsg::msg_t msg_type, MemComponent::component_t sender_mem_component, MemComponent::component_t receiver_mem_component, core_id_t requester, core_id_t receiver, IntPtr address, Byte* data_buf, UInt32 data_length, HitWhere::where_t where, ShmemPerf *perf, ShmemPerfModel::Thread_t thread_num)

@@ -15,9 +15,15 @@
 #include "subsecond_time.h"
 
 #include <map>
+#include "hooks_manager.h"
 
 class DramCache;
 class ShmemPerf;
+
+// CAP: another way to extract cache size/number of rows per sub-array
+#define CACHE_LINES_PER_SUBARRAY 256
+#define NUM_SUBARRAYS 4
+
 
 namespace ParametricDramDirectoryMSI
 {
@@ -60,6 +66,30 @@ namespace ParametricDramDirectoryMSI
 
          void accessTLB(TLB * tlb, IntPtr address, bool isIfetch, Core::MemModeled modeled);
 
+         //CAP: CAP Mode Enable Ops
+         bool m_cap_on;
+         
+         //CAP: Do we need a pic_ops_t equivalent/or a struct called PicInsInfo?
+         //CAP: Begin- CAP-apps
+         static SInt64 hookProcessAppMagic (UInt64 object, UInt64 argument) {
+      			((MemoryManager*)object)->processAppMagic(argument); return 0;
+   				}
+   				void processAppMagic(UInt64 argument);
+
+          //CAP: Initializing CAP 
+          void init_cacheprogram();
+
+          void create_cache_program_instructions_stash(char* cap_file);
+          void create_cache_program_instructions();
+          void schedule_cache_program_instructions();
+
+          std::vector< Instruction *> m_cache_program_ins;
+          std::vector< Instruction *> m_cache_program_ins_stash;
+          //CAP: Do you need this? Why was it there in PIC?
+          std::vector< DynamicInstructionInfo> m_cache_program_dyn_ins_info_stash;
+          std::vector< DynamicInstructionInfo> m_cache_program_dyn_ins_info;
+
+          
       public:
          MemoryManager(Core* core, Network* network, ShmemPerfModel* shmem_perf_model);
          ~MemoryManager();
