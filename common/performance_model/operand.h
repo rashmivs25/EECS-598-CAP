@@ -20,7 +20,8 @@ public:
    enum Direction
    {
       READ,
-      WRITE
+      WRITE,
+      WRITE_CAP   //CAP: CAP specific register accesses for stores   
    };
 
    typedef UInt64 Value;

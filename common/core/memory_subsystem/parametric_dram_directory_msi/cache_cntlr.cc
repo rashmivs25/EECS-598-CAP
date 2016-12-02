@@ -1449,10 +1449,11 @@ void CacheCntlr::processPatternMatch(UInt32 inputChar)
    Byte* out_data_buf = new Byte[NUM_SUBARRAYS*m_cache_block_size];
    Byte tempA_data_buf, tempB_data_buf;
    UInt32 nextStateVecLength = SWIZZLE_SWITCH_Y;
-   
+   UInt32 m_log_blocksize = floorLog2(m_cache_block_size);
+
    while(subarrayIndexBits<NUM_SUBARRAYS){
       // encode the single input character into N addresses for lookup in N subarrays
-      address = (subarrayIndexBits<<(m_logASCIISetIndex+getCacheBlockSize())) | (inputChar<<getCacheBlockSize());
+      address = (subarrayIndexBits<<(m_logASCIISetIndex+m_log_blocksize)) | (inputChar<<m_log_blocksize);
       addr = (IntPtr)address;
       accessCache(Core::READ, addr, 0, temp_data_buf, m_cache_block_size, 1);
       memcpy((data_buf+(subarrayIndexBits*m_cache_block_size)), temp_data_buf, m_cache_block_size);

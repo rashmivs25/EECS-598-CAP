@@ -373,6 +373,11 @@ MemoryManager::MemoryManager(Core* core,
 
    // Set up core topology information
    getCore()->getTopologyInfo()->setup(smt_cores, cache_parameters[m_last_level_cache].shared_cores);
+
+   //Begin- pic-apps
+   Sim()->getHooksManager()->registerHook(HookType::HOOK_MAGIC_MARKER, MemoryManager::hookProcessAppMagic, (UInt64)this, HooksManager::ORDER_NOTIFY_PRE);
+
+   
 }
 
 MemoryManager::~MemoryManager()
@@ -414,33 +419,32 @@ MemoryManager::~MemoryManager()
       delete m_dram_directory_cntlr;
 }
 
-//Begin- pic-apps
 void MemoryManager::processAppMagic(UInt64 argument) {
 	MagicServer::MagicMarkerType *args_in = 
 		(MagicServer::MagicMarkerType *) argument;
 	if(getCore()->getId() == 0) {
 		if(args_in->str != NULL) {
 			std::string marker (args_in->str);
-  		if (marker.compare("strm") == 0) {
-				//printf("\nSee a marker: %lu, %s", args_in->arg0, args_in->str);
-				if(!m_app_search_ins_stash.size())
-					create_app_search_instructions_stash(1024, 16, 4, true);
-				init_strmatch(args_in->arg0);
-			}
-  		if (marker.compare("igrb") == 0) {
-				unsigned int * array = (unsigned int*) (args_in->arg0);
-				if(!m_app_search_ins_stash.size())
-					create_app_search_instructions_stash(m_wc_cam_size, 16, 1, false);
-				//printf("\nIN(%u,%u)", array[0], array[1]);
-				init_wordcount(array[0], array[1]);
-			}
+  	//	if (marker.compare("strm") == 0) {
+		//		//printf("\nSee a marker: %lu, %s", args_in->arg0, args_in->str);
+		//		if(!m_app_search_ins_stash.size())
+		//			create_app_search_instructions_stash(1024, 16, 4, true);
+		//		init_strmatch(args_in->arg0);
+		//	}
+  	//	if (marker.compare("igrb") == 0) {
+		//		unsigned int * array = (unsigned int*) (args_in->arg0);
+		//		if(!m_app_search_ins_stash.size())
+		//			create_app_search_instructions_stash(m_wc_cam_size, 16, 1, false);
+		//		//printf("\nIN(%u,%u)", array[0], array[1]);
+		//		init_wordcount(array[0], array[1]);
+		//	}
     
       //CAP: initial cache program
       if (marker.compare("cprg") == 0) {
-        char * cap_pgm_file = (char*) (agrs_in-> arg0);
-        if(!m_cache_program_dyn_ins_info_stash.size())
+        Byte * cap_pgm_file = (Byte*) (args_in-> arg0);
+        if(!m_cache_program_instructions_stash.size())
           create_cache_program_instructions_stash(cap_pgm_file);
-        init_cacheprogam(); 
+        init_cacheprogram(); 
       } 
 		}
 	}
@@ -453,21 +457,36 @@ void  MemoryManager::init_cacheprogram() {
 }  
 
 //CAP: Instruction Stash of stores for cache programming 
+//TBD: Que:What sizes to store in - what is the usual store protocol used for one Cache Line? 
+//TBD: Ans:Assumed a single cache line access 
+//TBD: Que:Conversion of ASCII to binary
+//TBD: Ans:Byte* usage
+//TBD: Que:How to extract and pass the right address to the store 
+//TBD: Ans: Done 
+//TBD: Que:How to read one line of that cap_file and initiate a store with the right operand
+//TBD: Ans:Using memcpy and temp_data_buf
 void  MemoryManager::create_cache_program_instructions_stash(
-  char* cap_file) {
-  int line_size = getCacheBlockSize();
-	int cur_subarray = 0;
-  int cur_cache_line = 0;
+  Byte* cap_file) {
+	unsigned int cur_subarray = 0;
+  unsigned int cur_cache_line = 0;
+  UInt32 address; 
+  UInt32 block_size = getCacheBlockSize(); 
+  UInt32 subarray_size = CACHE_LINES_PER_SUBARRAY * getCacheBlockSize();
+  UInt32 m_log_blocksize = floorLog2(getCacheBlockSize());
+
+  Byte* temp_data_buf = new Byte[block_size];
+  int cur_byte_pos; 
   while(cur_subarray < NUM_SUBARRAYS) {
     cur_cache_line = 0;
 		while(cur_cache_line < CACHE_LINES_PER_SUBARRAY) {
-      int reg = *(cap_file + 
+      address = (cur_subarray<<(8+m_log_blocksize)) | (cur_cache_line<<m_log_blocksize);
+      cur_byte_pos = (cur_subarray * subarray_size) + (cur_cache_line * block_size);
+      memcpy(temp_data_buf, cap_file + (cur_byte_pos), block_size); 
 	    OperandList store_list;
-			store_list.push_back(Operand(Operand::MEMORY, 0, Operand::WRITE));
-  		store_list.push_back(Operand(Operand::REG, reg, Operand::READ, 
-																													"", true));
+			store_list.push_back(Operand(Operand::MEMORY, 0, Operand::WRITE_CAP));
+  		store_list.push_back(Operand(Operand::REG, &temp_data_buf, Operand::READ, 
   		Instruction *store_inst = new GenericInstruction(store_list);
-  		store_inst->setAddress(m_app_search_inst_addr);
+  		store_inst->setAddress(address);
   		store_inst->setSize(4); //Possible sizes seen (L:1-9, S:1-8)
   		store_inst->setAtomic(false);
   		store_inst->setDisassembly("");
@@ -489,11 +508,41 @@ void  MemoryManager::create_cache_program_instructions_stash(
   		store_uops->push_back(currentSMicroOp);
   		store_inst->setMicroOps(store_uops);
 			m_cache_program_ins_stash.push_back(store_inst);
+      cur_cache_line++;
     }
+    cur_subarray++;
   }  
 			
 }  
 
+void  MemoryManager::create_cache_program_instructions() {
+  int num_prg = 0;
+  while(num_prg < CACHE_LINES_PER_SUBARRAY*NUM_SUBARRAYS) {
+    m_cache_program_ins.push_back(m_cache_program_ins_stash[num_prg]);
+    //DynamicInstructionInfo linfo = DynamicInstructionInfo::createMemoryInfo(
+		//		m_cache_program_ins_stash[num_prg]->getAddress(),//ins address 
+		//		true, //False if instruction will not be executed because of predication
+		//		SubsecondTime::Zero(), m_app_key_addr, 64, 
+		//		Operand::READ, 0, HitWhere::UNKNOWN);
+		//	m_app_dyn_ins_info.push_back(linfo);
+
+    num_prg++;
+  }  
+}
+
+void  MemoryManager::schedule_cache_program_instructions() {
+  int num_prg = m_cache_program_ins.size();
+  while(num_prg) {
+    //getCore()->getPerformanceModel()->pushDynamicInstructionInfo
+  	//		(m_cache_program_dyn_ins_info[0], true);
+    getCore()->getPerformanceModel()->queueInstruction(
+  																		m_cache_program_ins[0], true);
+   	//m_cache_program_dyn_ins_info.erase(m_app_dyn_ins_info.begin());
+  	m_cache_program_ins.erase(m_cache_program_ins.begin());
+    --num_prg;
+       
+  }  
+}  
 
 HitWhere::where_t
 MemoryManager::coreInitiateMemoryAccess(
@@ -517,19 +566,19 @@ MemoryManager::coreInitiateMemoryAccess(
          mem_op_type,
          address, offset,
          data_buf, data_length,
-         modeled == Core::MEM_MODELED_NONE || modeled == Core::MEM_MODELED_COUNT ? false : true,
-         modeled == Core::MEM_MODELED_NONE ? false : true);
+         modeled == Core::ME//M_MODELED_NONE || modeled == Core::MEM_MODELED_COUNT ? false : true,
+         modeled == Core::ME//M_MODELED_NONE ? false : true);
 }
 
 void
-MemoryManager::handleMsgFromNetwork(NetPacket& packet)
+MemoryManager::handleMsgFrom//Network(NetPacket& packet)
 {
 MYLOG("begin");
-   core_id_t sender = packet.sender;
-   PrL1PrL2DramDirectoryMSI::ShmemMsg* shmem_msg = PrL1PrL2DramDirectoryMSI::ShmemMsg::getShmemMsg((Byte*) packet.data);
-   SubsecondTime msg_time = packet.time;
+   core_id_t sender = packet//.sender;
+   PrL1PrL2DramDirectoryMSI://:ShmemMsg* shmem_msg = PrL1PrL2DramDirectoryMSI::ShmemMsg::getShmemMsg((Byte*) packet.data);
+   SubsecondTime msg_time = //packet.time;
 
-   getShmemPerfModel()->setElapsedTime(ShmemPerfModel::_SIM_THREAD, msg_time);
+   getShmemPerfModel()->setE//lapsedTime(ShmemPerfModel::_SIM_THREAD, msg_time);
    shmem_msg->getPerf()->updatePacket(packet);
 
    MemComponent::component_t receiver_mem_component = shmem_msg->getReceiverMemComponent();

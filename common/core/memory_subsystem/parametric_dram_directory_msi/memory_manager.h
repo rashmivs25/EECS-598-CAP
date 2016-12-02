@@ -79,17 +79,16 @@ namespace ParametricDramDirectoryMSI
           //CAP: Initializing CAP 
           void init_cacheprogram();
 
-          void create_cache_program_instructions_stash(char* cap_file);
+          void create_cache_program_instructions_stash(Byte* cap_file);
           void create_cache_program_instructions();
           void schedule_cache_program_instructions();
 
           std::vector< Instruction *> m_cache_program_ins;
           std::vector< Instruction *> m_cache_program_ins_stash;
-          //CAP: Do you need this? Why was it there in PIC?
-          std::vector< DynamicInstructionInfo> m_cache_program_dyn_ins_info_stash;
-          std::vector< DynamicInstructionInfo> m_cache_program_dyn_ins_info;
-
-          
+          //CAP: TODO Do you need this? Why was it there in PIC?
+          //std::vector< DynamicInstructionInfo> m_cache_program_dyn_ins_info_stash;
+          //std::vector< DynamicInstructionInfo> m_cache_program_dyn_ins_info;
+         
       public:
          MemoryManager(Core* core, Network* network, ShmemPerfModel* shmem_perf_model);
          ~MemoryManager();

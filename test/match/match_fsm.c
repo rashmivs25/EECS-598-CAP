@@ -70,9 +70,8 @@ int getnextline(char* output, int max_len, char* file)
 	return i;
 }
 
-void cap_cache_init(char* cap_file)
+void cap_cache_init(Byte* cap_file)
 {
-  char* cache_line;
    
   assert(cap_file);
 
@@ -89,7 +88,7 @@ void cap_cache_init(char* cap_file)
 int main(int argc, char *argv[]) 
 {   
    int fd_cap;
-   char *fdata_cap;
+   Byte* fdata_cap;
    struct stat finfo_cap;
    char * InputMatchFile, *CacheProgramFile;
 
@@ -100,7 +99,7 @@ int main(int argc, char *argv[])
       exit(1);
    }
    InputMatchFile = argv[1];
-   CacheProgramFile argv[2];
+   CacheProgramFile = argv[2];
      
    struct timeval starttime,endtime;
    srand( (unsigned)time( NULL ) );
@@ -117,7 +116,7 @@ int main(int argc, char *argv[])
 
 
 	 gettimeofday(&starttime,0);
-   cap_cache_init((char *)fdata_cap);
+   cap_cache_init(fdata_cap);
 	 gettimeofday(&endtime,0);
    printf("CAP: Cache STE Programming Completed %ld\n",(endtime.tv_sec - starttime.tv_sec));
 
